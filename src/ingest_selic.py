@@ -6,25 +6,25 @@ import requests
 
 
 URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados"
+ARQUIVO_SAIDA = Path("data/bronze/selic_raw.json")
 
 parametros = {
     "formato": "json",
-    "dataInicial": "01/01/2021",
+    "dataInicial": "01/01/2022",
     "dataFinal": date.today().strftime("%d/%m/%Y"),
 }
 
+# Consulta a API do Banco Central
 response = requests.get(URL, params=parametros, timeout=30)
 response.raise_for_status()
 
 dados = response.json()
 
-pasta_destino = Path("data/bronze")
-pasta_destino.mkdir(parents=True, exist_ok=True)
+# Cria a pasta Bronze e salva o dado bruto
+ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
 
-arquivo_destino = pasta_destino / "selic_raw.json"
-
-with open(arquivo_destino, "w", encoding="utf-8") as arquivo:
+with open(ARQUIVO_SAIDA, "w", encoding="utf-8") as arquivo:
     json.dump(dados, arquivo, ensure_ascii=False, indent=2)
 
 print(f"Registros recebidos: {len(dados)}")
-print(f"Arquivo salvo em: {arquivo_destino}")
+print(f"Arquivo salvo em: {ARQUIVO_SAIDA}")
