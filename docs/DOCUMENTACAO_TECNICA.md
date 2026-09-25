@@ -2,9 +2,9 @@
 
 ## 1. Visão geral
 
-Este projeto implementa um pipeline de Engenharia de Dados para ingestão, tratamento, agregação, armazenamento, catalogação e consulta de dados históricos da taxa Selic.
+Este projeto implementa um pipeline de Engenharia de Dados para ingestão, transformação, agregação, armazenamento, catalogação, consulta e visualização de dados históricos da taxa Selic.
 
-O fluxo foi construído com Python e serviços AWS, seguindo uma arquitetura em camadas Bronze, Silver e Gold.
+O fluxo foi construído com Python, serviços AWS e Power BI, seguindo uma arquitetura em camadas Bronze, Silver e Gold.
 
 ```text
 API Banco Central
@@ -12,7 +12,7 @@ API Banco Central
 Python
         ↓
 Bronze
-        ↓
+        ↓s
 Data Profiling
         ↓
 Silver
@@ -26,6 +26,10 @@ AWS Glue Crawler
 Glue Data Catalog
         ↓
 Amazon Athena
+        ↓
+Amazon Athena ODBC
+        ↓
+Power BI
 ```
 
 ---
@@ -61,17 +65,16 @@ valor
 pipeline-selic-aws/
 ├── docs/
 │   └── DOCUMENTACAO_TECNICA.md
-│
 ├── notebooks/
 │   ├── 01_bronze_data_profiling.ipynb
 │   ├── 02_silver_data_validation.ipynb
 │   └── 03_gold_data_analysis.ipynb
-│
+├── powerbi/
+│   └── selic_dashboard.pbix
 ├── src/
 │   ├── ingest_selic.py
 │   ├── transform_selic.py
 │   └── build_gold_selic.py
-│
 ├── .gitignore
 └── README.md
 ```
@@ -88,7 +91,7 @@ Arquivo:
 data/bronze/selic_raw.json
 ```
 
-A ingestão é executada pelo script:
+Script responsável:
 
 ```text
 src/ingest_selic.py
@@ -116,19 +119,13 @@ python src/ingest_selic.py
 
 ## 5. Data Profiling
 
-Antes de definir as transformações da camada Silver, os dados da Bronze foram analisados no notebook:
+Antes da transformação para Silver, os dados da Bronze são analisados no notebook:
 
 ```text
 notebooks/01_bronze_data_profiling.ipynb
 ```
 
-O notebook lê diretamente a Bronze:
-
-```python
-import pandas as pd
-
-df = pd.read_json("../data/bronze/selic_raw.json")
-```
+O notebook lê diretamente o arquivo Bronze e não realiza uma nova chamada à API.
 
 Foram avaliados:
 
@@ -150,8 +147,6 @@ valor    0
 Registros duplicados:
 0
 ```
-
-O profiling permitiu definir as regras da camada Silver com base no dado real.
 
 ---
 
@@ -185,7 +180,7 @@ data_referencia → datetime
 taxa_selic_aa   → numérico
 ```
 
-O formato Parquet foi utilizado por ser eficiente para processamento analítico e consultas colunares.
+O formato Parquet foi utilizado por ser adequado a processamento analítico e leitura colunar.
 
 Comando:
 
@@ -193,7 +188,7 @@ Comando:
 python src/transform_selic.py
 ```
 
-A camada é validada no notebook:
+Validação:
 
 ```text
 notebooks/02_silver_data_validation.ipynb
@@ -203,7 +198,7 @@ notebooks/02_silver_data_validation.ipynb
 
 ## 7. Camada Gold
 
-A Gold prepara os dados para consumo analítico.
+A camada Gold prepara os dados para consumo analítico.
 
 Arquivo:
 
@@ -217,7 +212,11 @@ Script:
 src/build_gold_selic.py
 ```
 
-A granularidade foi alterada de diária para mensal.
+Granularidade:
+
+```text
+diária → mensal
+```
 
 Indicadores gerados:
 
@@ -229,21 +228,7 @@ taxa_maxima
 taxa_fim_mes
 ```
 
-Fluxo:
-
-```text
-Silver diária
-     ↓
-agrupamento por ano/mês
-     ↓
-Gold mensal
-```
-
-A execução validada gerou:
-
-```text
-57 registros
-```
+A execução validada gerou 57 registros mensais.
 
 Comando:
 
@@ -251,7 +236,7 @@ Comando:
 python src/build_gold_selic.py
 ```
 
-A Gold pode ser analisada por meio de:
+Notebook de análise:
 
 ```text
 notebooks/03_gold_data_analysis.ipynb
@@ -261,15 +246,13 @@ notebooks/03_gold_data_analysis.ipynb
 
 ## 8. Amazon S3
 
-As três camadas foram armazenadas no Amazon S3.
-
-Bucket:
+Bucket utilizado:
 
 ```text
 s3://rafael-portfolio-dados-aws/
 ```
 
-Estrutura:
+Estrutura lógica:
 
 ```text
 bronze/
@@ -287,59 +270,43 @@ gold/
 athena-results/
 ```
 
+O prefixo `athena-results/` é utilizado pelo Athena para armazenar resultados das consultas.
+
 ---
 
 ## 9. AWS CLI
 
-Foi configurado um perfil dedicado:
+Profile utilizado:
 
 ```text
 selic-dev
 ```
 
-Para verificar a identidade autenticada:
+Validação de identidade:
 
 ```powershell
 aws sts get-caller-identity --profile selic-dev
 ```
 
-### Upload da Bronze
+Uploads:
 
 ```powershell
 aws s3 cp data/bronze/selic_raw.json s3://rafael-portfolio-dados-aws/bronze/selic/selic_raw.json --profile selic-dev
-```
-
-### Upload da Silver
-
-```powershell
 aws s3 cp data/silver/selic.parquet s3://rafael-portfolio-dados-aws/silver/selic/selic.parquet --profile selic-dev
-```
-
-### Upload da Gold
-
-```powershell
 aws s3 cp data/gold/selic_mensal.parquet s3://rafael-portfolio-dados-aws/gold/selic/selic_mensal.parquet --profile selic-dev
-```
-
-Para validar arquivos armazenados:
-
-```powershell
-aws s3 ls s3://rafael-portfolio-dados-aws/gold/selic/ --profile selic-dev
 ```
 
 ---
 
 ## 10. IAM e segurança
 
-Foi utilizado um usuário IAM específico para o projeto.
+Usuário IAM do projeto:
 
 ```text
 pipeline-selic-dev
 ```
 
-O usuário root não é utilizado pelo pipeline.
-
-Também foi configurada uma IAM Role específica para o AWS Glue Crawler:
+IAM Role do Glue:
 
 ```text
 AWSGlueServiceRole-SelicCrawler
@@ -347,25 +314,63 @@ AWSGlueServiceRole-SelicCrawler
 
 Boas práticas adotadas:
 
-- MFA no usuário root;
-- root sem Access Keys ativas;
-- usuário IAM específico;
+- usuário root sem uso programático;
+- MFA no root;
+- usuário IAM específico para o projeto;
 - profile AWS CLI dedicado;
 - IAM Role separada para o Glue;
 - credenciais fora do Git;
-- arquivos sensíveis ignorados pelo `.gitignore`.
+- `.env` ignorado;
+- princípio de menor privilégio nas policies.
+
+### 10.1 Policy de S3
+
+Policy:
+
+```text
+PipelineSelicS3Access
+```
+
+Permite acesso controlado aos prefixos:
+
+```text
+bronze/selic/*
+silver/selic/*
+gold/selic/*
+athena-results/*
+```
+
+O prefixo `athena-results/*` foi adicionado para permitir que o Athena grave e leia os resultados das consultas executadas via ODBC e Power BI.
+
+### 10.2 Policy do Athena
+
+Policy:
+
+```text
+PipelineSelicAthenaAccess
+```
+
+Permite:
+
+- consultar o workgroup `primary`;
+- iniciar consultas;
+- acompanhar execução;
+- ler resultados;
+- navegar no catálogo;
+- ler metadados do Glue;
+- acessar o database `selic_analytics`.
 
 ---
 
 ## 11. AWS Glue Crawler
 
-Foi criado o Crawler:
+Crawler:
 
 ```text
 crawler-gold-selic
 ```
 
-Fonte analisada:
+Fonte:
 
 ```text
 s3://rafael-portfolio-dados-aws/gold/selic/
@@ -377,47 +382,45 @@ Execução:
 On demand
 ```
 
-O Crawler identifica automaticamente:
+O crawler identifica:
 
 - formato do arquivo;
 - colunas;
 - tipos;
 - localização no S3.
 
-Execução validada:
-
-```text
-Status: Completed
-Duração aproximada: 1 minuto
-Table changes: 1
-```
+A execução foi validada com sucesso e registrou a tabela da Gold no Glue Data Catalog.
 
 ---
 
 ## 12. Glue Data Catalog
 
-Foi criado o database:
+Database:
 
 ```text
 selic_analytics
 ```
 
-O Glue Data Catalog não armazena os dados físicos.
-
-Ele armazena os metadados necessários para que outros serviços possam localizar e interpretar os arquivos do S3.
-
-O Crawler registrou a tabela:
+Tabela:
 
 ```text
 selic
 ```
+
+Formato:
+
+```text
+Parquet
+```
+
+O Glue Data Catalog armazena apenas metadados. Os dados físicos permanecem no Amazon S3.
 
 Fluxo:
 
 ```text
 S3 Gold
    ↓
-Crawler
+Glue Crawler
    ↓
 Glue Data Catalog
    ↓
@@ -428,17 +431,18 @@ selic_analytics.selic
 
 ## 13. Amazon Athena
 
-O Amazon Athena foi utilizado para consultar a camada Gold diretamente no S3 utilizando SQL.
-
 Configuração:
 
 ```text
+Region: us-east-1
 Data source: AwsDataCatalog
 Database: selic_analytics
 Table: selic
+Workgroup: primary
+Query result location: s3://rafael-portfolio-dados-aws/athena-results/
 ```
 
-Consulta de teste:
+Consulta de validação:
 
 ```sql
 SELECT *
@@ -446,122 +450,147 @@ FROM "selic_analytics"."selic"
 LIMIT 10;
 ```
 
-Resultado:
+Resultado validado:
 
 ```text
 10 registros retornados
 aproximadamente 1.27 KB verificados
 ```
 
-O Athena foi configurado para armazenar os resultados das queries em:
+---
+
+## 14. Amazon Athena ODBC
+
+Driver instalado no Windows:
 
 ```text
-s3://rafael-portfolio-dados-aws/athena-results/
+Amazon Athena ODBC (x64)
+Versão 2.02.00.01
 ```
 
-Fluxo:
+Foi criado um DSN local para uso pelo Power BI.
+
+Configuração:
 
 ```text
-Athena
+Data Source Name: SelicAthena
+Description: Pipeline Selic - Athena
+Region: us-east-1
+Catalog: AwsDataCatalog
+Database: selic_analytics
+Workgroup: primary
+S3 Output Location: s3://rafael-portfolio-dados-aws/athena-results/
+Encryption: NOT_SET
+```
+
+Autenticação:
+
+```text
+Authentication Type: IAM Profile
+AWS Profile: selic-dev
+```
+
+Observações:
+
+- `SelicAthena` é apenas o nome local do DSN no Windows;
+- `Pipeline Selic - Athena` é uma descrição local;
+- `AwsDataCatalog` é o catálogo utilizado pelo Athena;
+- `selic_analytics` é o database registrado no Glue Data Catalog.
+
+---
+
+## 15. Power BI
+
+Arquivo:
+
+```text
+powerbi/selic_dashboard.pbix
+```
+
+Fluxo de conexão:
+
+```text
+Power BI
    ↓
-Glue Data Catalog
+Amazon Athena Connector
    ↓
-S3 Gold
+DSN SelicAthena
    ↓
-resultado SQL
+AwsDataCatalog
+   ↓
+selic_analytics
+   ↓
+selic
+```
+
+Modo utilizado:
+
+```text
+Importar
+```
+
+A tabela `selic` foi localizada no Navigator do Power BI e carregada com sucesso.
+
+Campos disponíveis:
+
+```text
+ano_mes
+taxa_media
+taxa_minima
+taxa_maxima
+taxa_fim_mes
 ```
 
 ---
 
-## 14. Ambiente Python
+## 16. Problemas encontrados e soluções
 
-O projeto utiliza um ambiente virtual:
+### MissingAuthenticationTokenException
 
-```text
-.venv
-```
-
-Principais bibliotecas:
+Causa:
 
 ```text
-pandas
-requests
-pyarrow
+ODBC sem autenticação válida configurada
 ```
 
-O `pyarrow` é necessário para leitura e escrita de arquivos Parquet.
-
----
-
-## 15. Git e GitHub
-
-O projeto utiliza versionamento com Git.
-
-Fluxo aplicado:
+Solução:
 
 ```text
-main
-  ↓
-feature branch
-  ↓
-commit
-  ↓
-push
-  ↓
-Pull Request
-  ↓
-merge
+Authentication Type: IAM Profile
+AWS Profile: selic-dev
 ```
 
-Branch utilizada na implementação principal:
+### AccessDeniedException em athena:GetWorkGroup
+
+Causa:
 
 ```text
-feat/selic-pipeline-glue-athena
+pipeline-selic-dev sem permissão para consultar o workgroup primary
 ```
 
-Commit principal:
+Solução:
 
 ```text
-feat: complete AWS Selic pipeline with Glue and Athena
+criação da policy PipelineSelicAthenaAccess
 ```
 
-O Pull Request foi posteriormente integrado à `main`.
+### Access denied when writing to athena-results
 
----
+Causa:
 
-## 16. .gitignore
+A policy S3 permitia `PutObject` apenas em Bronze, Silver e Gold.
 
-O projeto evita versionar arquivos locais, temporários e sensíveis.
+Solução:
 
-```gitignore
-# Ambiente virtual Python
-.venv/
-
-# Dados gerados pelo pipeline
-data/
-
-# Cache do Python
-__pycache__/
-*.pyc
-
-# Cache dos notebooks
-.ipynb_checkpoints/
-
-# Arquivos de ambiente/segredos
-.env
-```
-
----
-
-## 17. Problemas encontrados e soluções
-
-### AWS CLI sem região
-
-Erro:
+Adicionar o recurso:
 
 ```text
-NoRegion
+arn:aws:s3:::rafael-portfolio-dados-aws/athena-results/*
 ```
+
+à policy `PipelineSelicS3Access`.
+
+### NoRegion
 
 Correção:
 
@@ -569,29 +598,11 @@ Correção:
 aws configure set region us-east-1 --profile selic-dev
 ```
 
-### Credencial inválida
+### InvalidClientTokenId
 
-Erro:
+Foi necessário revisar e substituir a credencial configurada no profile.
 
-```text
-InvalidClientTokenId
-```
-
-Foi necessário revisar e substituir a Access Key configurada.
-
-### Perfil autenticando como root
-
-O comando:
-
-```powershell
-aws sts get-caller-identity --profile selic-dev
-```
-
-permitiu identificar quando as credenciais configuradas não correspondiam ao usuário IAM esperado.
-
-### PyArrow ausente no ambiente virtual
-
-Erro ao gerar Parquet.
+### PyArrow ausente
 
 Correção:
 
@@ -599,9 +610,7 @@ Correção:
 python -m pip install pyarrow
 ```
 
-### Notebook realizando uma segunda ingestão
-
-Inicialmente o notebook consultava a API diretamente.
+### Notebook realizando segunda ingestão
 
 A arquitetura foi corrigida para:
 
@@ -613,49 +622,90 @@ Bronze
 Notebook de profiling
 ```
 
-Dessa forma existe apenas uma ingestão oficial.
-
 ---
 
-## 18. Decisões técnicas
+## 17. Decisões técnicas
 
-### JSON na Bronze
+### Bronze em JSON
 
 Mantém o dado próximo ao formato da fonte.
 
-### Parquet na Silver e Gold
+### Silver e Gold em Parquet
 
-Reduz armazenamento e leitura em cenários analíticos e é adequado para Athena.
+Formato colunar adequado para analytics e Athena.
 
 ### Profiling antes da transformação
 
-As regras da Silver foram definidas somente após análise dos dados brutos.
+As regras da Silver foram definidas após análise do dado real.
 
-### Crawler apenas na Gold
+### Glue Crawler na Gold
 
-A Gold é a camada destinada ao consumo analítico e, portanto, foi a primeira camada catalogada para o Athena.
+A Gold é a camada destinada ao consumo analítico.
 
-### Crawler On Demand
+### Athena serverless
 
-Evita execuções desnecessárias e ajuda no controle de custos.
+Permite SQL sobre arquivos no S3 sem provisionamento de servidor de banco de dados.
+
+### ODBC entre Athena e Power BI
+
+Mantém o Athena como camada de consulta e desacopla o Power BI do armazenamento físico no S3.
+
+### Power BI em modo Importar
+
+Adequado ao volume atual do projeto e reduz consultas repetidas ao Athena durante a exploração do relatório.
+
+---
+
+## 18. Git e GitHub
+
+Fluxo utilizado:
+
+```text
+main
+  ↓
+feature/docs branch
+  ↓
+commit
+  ↓
+push
+  ↓
+Pull Request
+  ↓
+merge
+```
+
+Branches utilizadas:
+
+```text
+feat/selic-pipeline-glue-athena
+docs/improve-project-documentation
+```
+
+Commits relevantes:
+
+```text
+feat: complete AWS Selic pipeline with Glue and Athena
+docs: improve README and add technical documentation
+```
 
 ---
 
 ## 19. Custos e boas práticas
 
-Serviços utilizados podem gerar custos, principalmente:
+Principais serviços que podem gerar custos:
 
+- Amazon S3;
 - AWS Glue Crawler;
-- Amazon Athena;
-- Amazon S3.
+- Amazon Athena.
 
 Boas práticas adotadas:
 
-- Crawler executado sob demanda;
-- Parquet utilizado para reduzir leitura no Athena;
+- crawler sob demanda;
+- uso de Parquet;
 - consultas de teste com `LIMIT`;
-- separação de `athena-results/`;
-- monitoramento do volume verificado pelo Athena.
+- prefixo separado `athena-results/`;
+- IAM com permissões específicas;
+- Power BI em modo Importar para o cenário atual.
 
 ---
 
@@ -674,7 +724,9 @@ IAM                     ✅
 AWS Glue Crawler        ✅
 Glue Data Catalog       ✅
 Amazon Athena           ✅
-Power BI                ⏳
+Athena ODBC             ✅
+Power BI                ✅
+Dashboard final         ⏳
 Carga incremental       ⏳
 boto3                   ⏳
 Automação               ⏳
@@ -685,12 +737,12 @@ Data Quality            ⏳
 
 ## 21. Próximos passos
 
-- conectar o Amazon Athena ao Power BI;
-- criar consultas analíticas adicionais;
+- construir os visuais e indicadores do dashboard no Power BI;
+- criar medidas DAX;
+- validar tipos e formatação no modelo;
 - implementar carga incremental;
-- utilizar `boto3` para integração Python → AWS;
-- eliminar uploads manuais;
-- adicionar testes de qualidade;
-- automatizar a execução do pipeline;
+- automatizar uploads com `boto3`;
+- adicionar testes de qualidade de dados;
+- evoluir a orquestração;
 - adicionar monitoramento;
-- criar um diagrama visual final da arquitetura.
+- documentar a versão final do dashboard.
