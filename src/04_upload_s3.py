@@ -9,7 +9,7 @@ PERFIL_AWS = "selic-dev"
 BUCKET_S3 = "rafael-portfolio-dados-aws"
 
 
-# Arquivos locais → destinos no S3
+# Arquivos locais → destinos no S3 De-Para
 ARQUIVOS_UPLOAD = {
     Path("data/bronze/selic_raw.json"): "bronze/selic/selic_raw.json",
     Path("data/silver/selic.parquet"): "silver/selic/selic.parquet",

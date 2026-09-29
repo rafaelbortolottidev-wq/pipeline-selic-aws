@@ -1,153 +1,128 @@
 # Pipeline AWS para Análise Histórica da Selic
 
-Pipeline de Engenharia de Dados para ingestão, transformação, armazenamento, catalogação, consulta e visualização de dados históricos da taxa Selic utilizando Python, AWS e Power BI.
-
-## Objetivo
-
-Construir um pipeline seguindo a arquitetura Bronze, Silver e Gold, armazenando os dados no Amazon S3, catalogando a camada analítica com AWS Glue, consultando os dados com Amazon Athena e disponibilizando o resultado para visualização no Power BI.
+Pipeline de Engenharia de Dados para ingestão incremental, transformação, armazenamento, catalogação, consulta e visualização de dados históricos da taxa Selic com Python e AWS.
 
 ## Arquitetura
 
 ```text
 API Banco Central
         ↓
-Python
+01_ingest_selic.py
+Carga incremental
         ↓
-Bronze — JSON
+Bronze local — JSON
         ↓
-Data Profiling
+02_transform_selic.py
         ↓
-Silver — Parquet
+Silver local — Parquet
         ↓
-Gold — Parquet agregado
+03_build_gold_selic.py
+        ↓
+Gold local — Parquet mensal
+        ↓
+04_upload_s3.py + boto3
         ↓
 Amazon S3
         ↓
-AWS Glue Crawler
-        ↓
-Glue Data Catalog
+AWS Glue Data Catalog
         ↓
 Amazon Athena
-        ↓
-ODBC
         ↓
 Power BI
 ```
 
 ## Tecnologias
 
-- Python
-- pandas
-- requests
-- PyArrow
+- Python, pandas, requests, PyArrow e boto3
 - Jupyter Notebook
 - Amazon S3
-- AWS IAM
-- AWS CLI
-- AWS Glue
-- Glue Data Catalog
+- AWS IAM e AWS CLI
+- AWS Glue Crawler e Glue Data Catalog
 - Amazon Athena
-- Amazon Athena ODBC Driver 2.x
+- Amazon Athena ODBC Driver
 - Power BI Desktop
-- Git
-- GitHub
+- Git e GitHub
 
 ## Estrutura do projeto
 
 ```text
 pipeline-selic-aws/
 ├── docs/
-│   └── DOCUMENTACAO_TECNICA.md
+│   ├── architecture.md
+│   └── setup.md
 ├── notebooks/
 │   ├── 01_bronze_data_profiling.ipynb
 │   ├── 02_silver_data_validation.ipynb
 │   └── 03_gold_data_analysis.ipynb
-├── powerbi/
-│   └── selic_dashboard.pbix
 ├── src/
-│   ├── ingest_selic.py
-│   ├── transform_selic.py
-│   └── build_gold_selic.py
+│   ├── 01_ingest_selic.py
+│   ├── 02_transform_selic.py
+│   ├── 03_build_gold_selic.py
+│   └── 04_upload_s3.py
 ├── .gitignore
 └── README.md
 ```
 
-## Pipeline
+Os arquivos gerados em `data/` e o arquivo `.pbix` são mantidos apenas no ambiente local e não são versionados no Git.
 
-**Bronze**  
-Preserva os dados brutos recebidos da API do Banco Central em JSON.
+## Fluxo dos dados
 
-**Silver**  
-Padroniza nomes, converte tipos e salva os dados tratados em Parquet.
+| Etapa | Entrada | Processamento | Saída |
+|---|---|---|---|
+| Ingestão | API BCB — série 1178 | Busca apenas registros posteriores à última data da Bronze | `data/bronze/selic_raw.json` |
+| Silver | Bronze | Padronização de nomes e tipos | `data/silver/selic.parquet` |
+| Gold | Silver | Agregação mensal | `data/gold/selic_mensal.parquet` |
+| Upload | Bronze, Silver e Gold locais | Envio para o S3 com boto3 | `s3://rafael-portfolio-dados-aws/` |
 
-**Gold**  
-Agrega os dados mensalmente para consumo analítico.
+A ingestão incremental preserva o histórico existente, incorpora apenas novos registros e evita duplicidades por data. Reexecutar o processo sem novos dados mantém a Bronze inalterada.
 
-A camada Gold é armazenada no Amazon S3, catalogada pelo AWS Glue, consultada pelo Amazon Athena e consumida pelo Power BI através do driver ODBC do Athena.
+A camada Gold contém:
 
-## Resultado
+```text
+ano_mes
+taxa_media
+taxa_minima
+taxa_maxima
+taxa_fim_mes
+```
+
+## Execução local
+
+```powershell
+python src/01_ingest_selic.py
+python src/02_transform_selic.py
+python src/03_build_gold_selic.py
+python src/04_upload_s3.py
+```
+
+Os notebooks são usados para profiling, validação e análise. O código executável do pipeline é mantido em `src/`.
+
+## Estado atual
 
 ```text
 API Banco Central       ✅
-Ingestão Python         ✅
-Bronze                  ✅
+Bronze / Silver / Gold  ✅
 Data Profiling          ✅
-Silver                  ✅
-Gold                    ✅
+Carga incremental       ✅
+boto3 / upload S3       ✅
 Amazon S3               ✅
-AWS CLI                 ✅
-IAM                     ✅
-AWS Glue Crawler        ✅
-Glue Data Catalog       ✅
+AWS Glue Data Catalog   ✅
 Amazon Athena           ✅
 Athena ODBC             ✅
 Power BI                ✅
-Carga incremental       ⏳
-boto3                   ⏳
-Automação               ⏳
+Automação AWS           ⏳
+Monitoramento           ⏳
 Data Quality            ⏳
-```
-
-A camada Gold está disponível no Athena e foi conectada com sucesso ao Power BI por meio do DSN `SelicAthena`.
-
-## Como executar
-
-```powershell
-python src/ingest_selic.py
-python src/transform_selic.py
-python src/build_gold_selic.py
-```
-
-## Power BI
-
-O arquivo do relatório está localizado em:
-
-```text
-powerbi/selic_dashboard.pbix
-```
-
-A conexão utiliza:
-
-```text
-DSN: SelicAthena
-Region: us-east-1
-Catalog: AwsDataCatalog
-Database: selic_analytics
-Workgroup: primary
-Modo: Importar
 ```
 
 ## Documentação
 
-Os detalhes da arquitetura, transformações, configurações AWS, IAM, ODBC, Athena e Power BI estão disponíveis em:
-
-[Documentação técnica completa](docs/DOCUMENTACAO_TECNICA.md)
+- [Arquitetura](docs/architecture.md)
+- [Configuração e execução](docs/setup.md)
 
 ## Próximos passos
 
-- construir os visuais e indicadores do dashboard no Power BI;
-- criar medidas DAX;
-- implementar carga incremental;
-- automatizar uploads com `boto3`;
-- adicionar testes de qualidade dos dados;
-- evoluir a orquestração e o monitoramento do pipeline.
+- executar o pipeline na AWS sem dependência do computador local;
+- adicionar agendamento com EventBridge;
+- adicionar logs e monitoramento com CloudWatch;
+- evoluir processamento e Data Quality nas próximas fases.
