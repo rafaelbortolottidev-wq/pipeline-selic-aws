@@ -1,0 +1,28 @@
+
+name: Selic - CD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-glue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::369607682461:role/GitHubActionsSelicDeployRole
+          aws-region: us-east-1
+
+      - name: Publicar scripts Glue no S3
+        run: |
+          aws s3 cp src/glue/selic_bronze_to_silver.py s3://aws-glue-assets-369607682461-us-east-1/scripts/selic-bronze-to-silver.py
+          aws s3 cp src/glue/selic_silver_to_gold.py s3://aws-glue-assets-369607682461-us-east-1/scripts/selic-silver-to-gold.py
