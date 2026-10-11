@@ -21,3 +21,9 @@ jobs:
 
       - name: Verificar sintaxe Python
         run: python -m compileall -q src
+
+      - name: Instalar dependencias de teste
+        run: python -m pip install pandas pytest
+
+      - name: Executar testes automatizados
+        run: python -m pytest -v tests/
