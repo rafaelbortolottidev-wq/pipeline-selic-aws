@@ -13,15 +13,61 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Baixa os arquivos do repositório
       - name: Baixar codigo
         uses: actions/checkout@v4
 
+      # 2. Diagnostica a identidade apresentada à AWS
+      - name: Diagnosticar identidade OIDC
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          import urllib.parse
+          import urllib.request
+
+          # Solicita um token OIDC com público AWS STS
+          url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          token = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+
+          separator = "&" if "?" in url else "?"
+          url += separator + urllib.parse.urlencode({
+              "audience": "sts.amazonaws.com"
+          })
+
+          request = urllib.request.Request(
+              url,
+              headers={"Authorization": f"Bearer {token}"}
+          )
+
+          # Obtém o token sem exibi-lo nos logs
+          with urllib.request.urlopen(request) as response:
+              jwt = json.load(response)["value"]
+
+          # Decodifica apenas os dados públicos de identidade
+          payload = jwt.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+
+          claims = json.loads(
+              base64.urlsafe_b64decode(payload)
+          )
+
+          # Exibe somente os campos necessários ao diagnóstico
+          print("Issuer:", claims.get("iss"))
+          print("Audience:", claims.get("aud"))
+          print("Subject:", claims.get("sub"))
+          PY
+
+      # 3. Autentica na AWS usando credenciais temporárias
       - name: Autenticar na AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::369607682461:role/GitHubActionsSelicDeployRole
           aws-region: us-east-1
 
+      # 4. Publica os scripts dos jobs Glue no S3
       - name: Publicar scripts Glue no S3
         run: |
           aws s3 cp src/glue/selic_bronze_to_silver.py s3://aws-glue-assets-369607682461-us-east-1/scripts/selic-bronze-to-silver.py
